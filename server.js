@@ -86,8 +86,6 @@
 //   console.log(`Server running on port ${PORT}`);
 //   console.log(`Test Mode: ${process.env.TEST_MODE === 'true' ? 'ENABLED' : 'DISABLED'}`);
 // });
-
-
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -96,7 +94,7 @@ const connectDB = require('./config/db');
 const setupSocket = require('./socket');
 require('dotenv').config();
 
-// Import routes
+// Routes
 const authRoutes = require('./routes/auth');
 const publicRoutes = require('./routes/public');
 const attendanceRoutes = require('./routes/attendance');
@@ -108,71 +106,49 @@ const dashboardRoutes = require('./routes/dashboard');
 const app = express();
 const server = http.createServer(app);
 
+// ✅ Allowed Origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://sheelamrukkamahp.vercel.app'
+];
 
-// ✅ FIXED: No trailing "/" in origin
-const allowedOrigins = (
-  process.env.CORS_ORIGINS ||
-  'https://sheelamrukkamahp.vercel.app,http://localhost:3000,http://localhost:3001'
-)
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-
-// ✅ Socket.IO setup (same fix applied)
-const io = new Server(server, {
-  cors: {
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-
-      console.log("Socket Origin:", origin); // debug
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error('Not allowed by CORS'));
-    },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    credentials: true
-  }
-});
-
-// Make io accessible to routes
-app.set('io', io);
-
-// Setup socket handlers
-setupSocket(io);
-
-
-// ✅ CORS Middleware (FIXED)
+// ✅ CORS Middleware (SAFE VERSION)
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-
-    console.log("HTTP Origin:", origin); // debug
+    if (!origin) return callback(null, true); // Postman / mobile apps
 
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    return callback(new Error('Not allowed by CORS'));
+    console.log("Blocked by CORS:", origin);
+    return callback(new Error('CORS not allowed'));
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  credentials: true
 }));
 
-// ✅ IMPORTANT: Handle preflight requests
+// ✅ Handle preflight
 app.options('*', cors());
-
 
 // Middleware
 app.use(express.json());
 
-// Connect to database
+// Connect DB
 connectDB();
 
+// ✅ Socket.IO (FIXED TIMEOUT ISSUE)
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  transports: ['websocket', 'polling'] // important for Render
+});
+
+app.set('io', io);
+setupSocket(io);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -183,26 +159,22 @@ app.use('/api/sales', salesRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-
-// Health check
+// Health
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  res.json({ status: 'OK' });
 });
 
-
-// Error handling middleware
+// Error handler
 app.use((err, req, res, next) => {
   console.error("ERROR:", err.message);
   res.status(500).json({
-    message: 'Something went wrong!',
+    message: 'Server error',
     error: err.message
   });
 });
-
 
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌍 Allowed Origins:`, allowedOrigins);
 });
