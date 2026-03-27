@@ -59,81 +59,72 @@
 // });
 
 // module.exports = router;
-
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-require('dotenv').config();
+const SystemConfig = require('../models/SystemConfig');
+const FuelStock = require('../models/FuelStock');
 
-const connectDB = require('./config/db');
-const setupSocket = require('./socket');
+const router = express.Router();
 
-// Routes
-const authRoutes = require('./routes/auth');
-const publicRoutes = require('./routes/public');
-const attendanceRoutes = require('./routes/attendance');
-const shiftsRoutes = require('./routes/shifts');
-const salesRoutes = require('./routes/sales');
-const stockRoutes = require('./routes/stock');
-const dashboardRoutes = require('./routes/dashboard');
+// GET BUNK DETAILS
+router.get('/bunk', async (req, res) => {
+  try {
+    const bunkLocation = await SystemConfig.findOne({ key: 'bunk_location' });
 
-const app = express();
-const server = http.createServer(app);
+    const fallbackLat = Number(process.env.DEFAULT_LATITUDE);
+    const fallbackLng = Number(process.env.DEFAULT_LONGITUDE);
 
-// ✅ SIMPLE CORS (no errors)
-app.use(cors({
-  origin: '*',   // allow all (fixes your issue)
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true
-}));
+    const fallbackLocation =
+      !isNaN(fallbackLat) && !isNaN(fallbackLng)
+        ? { latitude: fallbackLat, longitude: fallbackLng }
+        : null;
 
-// ✅ handle preflight
-app.options('*', cors());
+    const location = fallbackLocation || bunkLocation?.value || null;
 
-// Middleware
-app.use(express.json());
-
-// Connect DB
-connectDB();
-
-// ✅ Socket.IO (fix timeout)
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  },
-  transports: ['websocket', 'polling']
+    res.json({
+      name: process.env.BUNK_NAME || 'Petrol Bunk',
+      phone: process.env.BUNK_PHONE || null,
+      address: process.env.BUNK_ADDRESS || null,
+      location
+    });
+  } catch (error) {
+    console.error('BUNK ERROR:', error);
+    res.status(500).json({
+      message: 'Server error',
+      error: error.message
+    });
+  }
 });
 
-app.set('io', io);
-setupSocket(io);
+// GET FUEL PRICES
+router.get('/prices', async (req, res) => {
+  try {
+    const stocks = await FuelStock.find().lean();
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/public', publicRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/shifts', shiftsRoutes);
-app.use('/api/sales', salesRoutes);
-app.use('/api/stock', stockRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+    if (!stocks || stocks.length === 0) {
+      return res.json({
+        petrol: 0,
+        diesel: 0,
+        message: 'Stock not initialized'
+      });
+    }
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK' });
+    const prices = {};
+    stocks.forEach((s) => {
+      prices[s.fuelType] = s.pricePerLiter || 0;
+    });
+
+    res.json({
+      petrol: prices.petrol || 0,
+      diesel: prices.diesel || 0,
+      updatedAt: new Date()
+    });
+  } catch (error) {
+    console.error('PRICE ERROR:', error);
+    res.status(500).json({
+      message: 'Server error',
+      error: error.message
+    });
+  }
 });
 
-// Error handler
-app.use((err, req, res, next) => {
-  console.error("ERROR:", err);
-  res.status(500).json({
-    message: 'Server error',
-    error: err.message
-  });
-});
-
-const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+module.exports = router;
