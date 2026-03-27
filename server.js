@@ -19,7 +19,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
+const allowedOrigins = (process.env.CORS_ORIGINS || 'https://sheelamrukkamahp.vercel.app/,http://localhost:3000,http://localhost:3001')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
