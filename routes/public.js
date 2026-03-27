@@ -60,93 +60,80 @@
 
 // module.exports = router;
 
-
 const express = require('express');
-const SystemConfig = require('../models/SystemConfig');
-const FuelStock = require('../models/FuelStock');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+require('dotenv').config();
 
-const router = express.Router();
+const connectDB = require('./config/db');
+const setupSocket = require('./socket');
 
-// ✅ BUNK DETAILS
-router.get('/bunk', async (req, res) => {
-  try {
-    const bunkLocation = await SystemConfig.findOne({ key: 'bunk_location' });
+// Routes
+const authRoutes = require('./routes/auth');
+const publicRoutes = require('./routes/public');
+const attendanceRoutes = require('./routes/attendance');
+const shiftsRoutes = require('./routes/shifts');
+const salesRoutes = require('./routes/sales');
+const stockRoutes = require('./routes/stock');
+const dashboardRoutes = require('./routes/dashboard');
 
-    const fallbackLatitude = Number(process.env.DEFAULT_LATITUDE);
-    const fallbackLongitude = Number(process.env.DEFAULT_LONGITUDE);
+const app = express();
+const server = http.createServer(app);
 
-    const fallbackLocation =
-      !Number.isNaN(fallbackLatitude) && !Number.isNaN(fallbackLongitude)
-        ? { latitude: fallbackLatitude, longitude: fallbackLongitude }
-        : null;
+// ✅ SIMPLE CORS (no errors)
+app.use(cors({
+  origin: '*',   // allow all (fixes your issue)
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
 
-    const location = fallbackLocation || bunkLocation?.value || null;
+// ✅ handle preflight
+app.options('*', cors());
 
-    // Sync DB if env location exists
-    if (fallbackLocation) {
-      await SystemConfig.findOneAndUpdate(
-        { key: 'bunk_location' },
-        {
-          key: 'bunk_location',
-          value: fallbackLocation,
-          description: 'Petrol bunk GPS coordinates'
-        },
-        { upsert: true }
-      );
-    }
+// Middleware
+app.use(express.json());
 
-    res.json({
-      name: process.env.BUNK_NAME || 'Petrol Bunk',
-      phone: process.env.BUNK_PHONE || null,
-      address: process.env.BUNK_ADDRESS || null,
-      location
-    });
+// Connect DB
+connectDB();
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
+// ✅ Socket.IO (fix timeout)
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  },
+  transports: ['websocket', 'polling']
 });
 
+app.set('io', io);
+setupSocket(io);
 
-// ✅ PRICES (FIXED)
-router.get('/prices', async (req, res) => {
-  try {
-    const stocks = await FuelStock.find().lean();
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/public', publicRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/shifts', shiftsRoutes);
+app.use('/api/sales', salesRoutes);
+app.use('/api/stock', stockRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
-    // ✅ FIX: handle empty DB
-    if (!stocks || stocks.length === 0) {
-      return res.json({
-        petrol: 0,
-        diesel: 0,
-        updatedAt: new Date().toISOString()
-      });
-    }
-
-    const prices = {
-      petrol: 0,
-      diesel: 0
-    };
-
-    stocks.forEach(stock => {
-      if (stock.fuelType === 'petrol') {
-        prices.petrol = stock.pricePerLiter;
-      }
-      if (stock.fuelType === 'diesel') {
-        prices.diesel = stock.pricePerLiter;
-      }
-    });
-
-    res.json({
-      ...prices,
-      updatedAt: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error("PRICE ERROR:", error);
-    res.status(500).json({ message: 'Server error' });
-  }
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK' });
 });
 
-module.exports = router;
+// Error handler
+app.use((err, req, res, next) => {
+  console.error("ERROR:", err);
+  res.status(500).json({
+    message: 'Server error',
+    error: err.message
+  });
+});
 
+const PORT = process.env.PORT || 5000;
+
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});

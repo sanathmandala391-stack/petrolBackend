@@ -86,13 +86,16 @@
 //   console.log(`Server running on port ${PORT}`);
 //   console.log(`Test Mode: ${process.env.TEST_MODE === 'true' ? 'ENABLED' : 'DISABLED'}`);
 // });
+
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+require('dotenv').config();
+
 const connectDB = require('./config/db');
 const setupSocket = require('./socket');
-require('dotenv').config();
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -106,29 +109,14 @@ const dashboardRoutes = require('./routes/dashboard');
 const app = express();
 const server = http.createServer(app);
 
-// ✅ Allowed Origins
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://sheelamrukkamahp.vercel.app'
-];
-
-// ✅ CORS Middleware (SAFE VERSION)
+// ✅ SIMPLE CORS (no errors)
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // Postman / mobile apps
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    console.log("Blocked by CORS:", origin);
-    return callback(new Error('CORS not allowed'));
-  },
+  origin: '*',   // allow all (fixes your issue)
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
 
-// ✅ Handle preflight
+// ✅ handle preflight
 app.options('*', cors());
 
 // Middleware
@@ -137,14 +125,13 @@ app.use(express.json());
 // Connect DB
 connectDB();
 
-// ✅ Socket.IO (FIXED TIMEOUT ISSUE)
+// ✅ Socket.IO (fix timeout)
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
-    methods: ['GET', 'POST'],
-    credentials: true
+    origin: '*',
+    methods: ['GET', 'POST']
   },
-  transports: ['websocket', 'polling'] // important for Render
+  transports: ['websocket', 'polling']
 });
 
 app.set('io', io);
@@ -159,14 +146,14 @@ app.use('/api/sales', salesRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// Health
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK' });
 });
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error("ERROR:", err.message);
+  console.error("ERROR:", err);
   res.status(500).json({
     message: 'Server error',
     error: err.message
