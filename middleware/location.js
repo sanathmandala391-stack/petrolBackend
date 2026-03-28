@@ -1,3 +1,5 @@
+/*
+
 const SystemConfig = require('../models/SystemConfig');
 
 // Calculate distance between two coordinates using Haversine formula
@@ -69,6 +71,90 @@ const verifyLocation = async (req, res, next) => {
 
     req.locationVerified = true;
     req.userLocation = { latitude, longitude };
+    next();
+  } catch (error) {
+    console.error('Location verification error:', error);
+    next(error);
+  }
+};
+
+module.exports = { verifyLocation, calculateDistance };
+
+
+
+*/
+
+const SystemConfig = require('../models/SystemConfig');
+
+// Calculate distance between two coordinates (Haversine)
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3; // meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
+const verifyLocation = async (req, res, next) => {
+  try {
+    const { latitude, longitude } = req.body;
+    const testMode = process.env.TEST_MODE === 'true';
+
+    // ✅ Skip location check in TEST_MODE
+    if (testMode) {
+      console.log('TEST_MODE: Location verification skipped');
+      req.locationVerified = true;
+      return next();
+    }
+
+    // ❗ Ensure location is provided
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        message: 'Location required for login',
+        requiresLocation: true
+      });
+    }
+
+    // ✅ MULTIPLE ALLOWED LOCATIONS
+    const allowedLocations = [
+      { lat: 17.934185023150558, lng: 79.85744885215156 }, // Warangal
+      { lat: 17.367851138179034, lng: 78.5279225009459 }, // Dilsukhnagar
+      { lat: 17.314092, lng: 78.678764 } // College
+    ];
+
+    const allowedRadius = parseInt(process.env.LOCATION_RADIUS_METERS) || 500;
+
+    // ✅ Check if user is within ANY allowed location
+    const isAllowed = allowedLocations.some(loc => {
+      const distance = calculateDistance(
+        latitude,
+        longitude,
+        loc.lat,
+        loc.lng
+      );
+      return distance <= allowedRadius;
+    });
+
+    if (!isAllowed) {
+      return res.status(403).json({
+        message: `You must be within ${allowedRadius}m of an allowed location`,
+        allowedRadius
+      });
+    }
+
+    // ✅ Success
+    req.locationVerified = true;
+    req.userLocation = { latitude, longitude };
+
     next();
   } catch (error) {
     console.error('Location verification error:', error);
